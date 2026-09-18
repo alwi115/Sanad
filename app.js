@@ -8,7 +8,7 @@ const COMPANIES=[
 ];
 const makeData=()=>({ledger:[],bank:[],approved:[],demo:false,ledgerName:'',bankName:''});
 const db=Object.fromEntries(COMPANIES.map(c=>[c.id,makeData()]));
-let activeCompany='chips', currentView='home',pending=null,modalCallback=null,toastTimer=null;
+let activeCompany='chips', currentView='home',pending=null,modalCallback=null,toastTimer=null,manualSequence=0,entryEditing=null;
 const $=id=>document.getElementById(id);
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const company=()=>COMPANIES.find(c=>c.id===activeCompany);
@@ -162,7 +162,7 @@ function number(n){return n.toLocaleString('en-US')}
 function renderCompanies(){
  $('companyCards').innerHTML=COMPANIES.map(c=>`<button class="company-card ${c.id===activeCompany?'selected':''}" data-company="${c.id}" aria-pressed="${c.id===activeCompany}"><span class="company-icon" style="background:${c.color};color:${c.ink}">${c.symbol}</span><span class="company-name">${esc(c.name)}</span><span class="company-footer"><span>${esc(c.sub)}</span><span>${c.id===activeCompany?'● الحالية':'اختيار ←'}</span></span></button>`).join('');
 }
-function renderHome(){const m=matchResult(),d=data(),flagged=m.ledger.filter(x=>x.issues.length).length;$('statOperations').textContent=number(d.ledger.length);$('statWarnings').textContent=number(flagged);$('statApproved').textContent=number(m.approved.length);$('statBank').textContent=number(m.unmatchedBank.length);$('demoIndicator').textContent=d.demo?'بيانات تجريبية':hasData()?'بيانات مستوردة':'بدون بيانات';$('demoIndicator').className='badge '+(d.demo?'badge-green':'badge-muted');$('sideFlag').textContent=flagged;$('sideFlag').classList.toggle('hidden',!flagged)}
+function renderHome(){const m=matchResult(),d=data(),flagged=m.ledger.filter(x=>x.issues.length).length;$('statOperations').textContent=number(d.ledger.length);$('statWarnings').textContent=number(flagged);$('statApproved').textContent=number(m.approved.length);$('statBank').textContent=number(m.unmatchedBank.length);$('demoIndicator').textContent=d.demo?'بيانات تجريبية':hasData()?'بيانات مسجّلة':'بدون بيانات';$('demoIndicator').className='badge '+(d.demo?'badge-green':'badge-muted');$('sideFlag').textContent=flagged;$('sideFlag').classList.toggle('hidden',!flagged)}
 function renderReview(){const records=analyseLedger(data().ledger),flags=records.filter(r=>r.issues.length),duplicates=flags.filter(r=>r.issues.some(x=>x.includes('تكرار'))),missing=flags.filter(r=>r.issues.some(x=>x.includes('ناقص')||x.includes('غير صالح')));$('reviewTotal').textContent=number(records.length);$('reviewFlags').textContent=number(flags.length);$('reviewDuplicates').textContent=number(duplicates.length);$('reviewMissing').textContent=number(missing.length);
  const filter=$('reviewFilter').value,q=norm($('reviewSearch').value);let filtered=records.filter(r=>{if(filter==='flagged'&&!r.issues.length)return false;if(filter==='duplicate'&&!r.issues.some(x=>x.includes('تكرار')))return false;if(filter==='missing'&&!r.issues.some(x=>x.includes('ناقص')||x.includes('غير صالح')))return false;return !q||norm([r.description,r.reference,r.party].join(' ')).includes(q)});
  $('reviewTable').innerHTML=renderTable(['الصف','التاريخ','البيان','المرجع','المبلغ (ر.ع)','الملاحظات'],filtered.map(r=>[r.row,r.date||r.rawDate||'—',r.description||'—',r.reference||'—',money(r.amount),r.issues.length?r.issues.join('، '):'لا توجد ملاحظات آلية']));
@@ -174,14 +174,14 @@ function renderMatch(){const m=matchResult();$('matchSuggested').textContent=num
 }
 function getReport(){const m=matchResult(),d=data(),flags=m.ledger.filter(r=>r.issues.length),dups=flags.filter(r=>r.issues.some(x=>x.includes('تكرار'))),invalid=flags.filter(r=>r.issues.some(x=>x.includes('ناقص')||x.includes('غير صالح')));return {m,d,flags,dups,invalid,company:company().name}}
 function renderReport(){const r=getReport();$('reportSubheading').textContent=`${r.company} | ${r.d.demo?'بيانات تجريبية':'بيانات الجلسة الحالية'}`;$('reportDate').textContent=`تاريخ إعداد التقرير: ${new Date().toLocaleString('en-GB')}`;
- const vals=[['العمليات المستوردة',r.d.ledger.length],['العمليات بملاحظات',r.flags.length],['التكرار المحتمل',r.dups.length],['المطابقات المقترحة',r.m.suggested.length],['المطابقات المعتمدة',r.m.approved.length],['حركات البنك غير المعتمدة',r.m.unmatchedBank.length]];
+ const vals=[['عمليات دفتر الحسابات',r.d.ledger.length],['العمليات بملاحظات',r.flags.length],['التكرار المحتمل',r.dups.length],['المطابقات المقترحة',r.m.suggested.length],['المطابقات المعتمدة',r.m.approved.length],['حركات البنك غير المعتمدة',r.m.unmatchedBank.length]];
  $('reportStats').innerHTML=vals.map(([k,v])=>`<div class="report-stat"><span>${esc(k)}</span><strong>${number(v)}</strong></div>`).join('');
  const entries=[`تم فحص ${number(r.d.ledger.length)} عملية في دفتر العمليات و${number(r.d.bank.length)} حركة في كشف البنك.`,`ظهرت ملاحظات محتملة في ${number(r.flags.length)} عملية، تشمل ${number(r.dups.length)} تكرارًا محتملًا و${number(r.invalid.length)} عملية ببيانات ناقصة أو غير صالحة.`,`يوجد ${number(r.m.suggested.length)} اقتراح مطابقة ينتظر اعتمادك، و${number(r.m.approved.length)} مطابقة اعتمدتها داخل الأداة.`,`المتبقي بدون اعتماد: ${number(r.m.unmatchedLedger.length)} عملية دفتر و${number(r.m.unmatchedBank.length)} حركة بنك.`,...(r.m.ambiguous?[`توجد ${number(r.m.ambiguous)} عملية دفتر لها أكثر من مرشح بنكي، لذلك لم تُقترح مطابقة لها.`]:[])];
  $('reportNarrative').innerHTML=`<ul>${entries.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`;
 }
-function renderAll(){renderCompanies();renderHome();renderReview();renderMatch();renderReport();$('ledgerCount').textContent=data().ledger.length?`تم استيراد ${number(data().ledger.length)} عملية • ${data().ledgerName}`:'ما تم استيراد أي ملف بعد.';$('bankCount').textContent=data().bank.length?`تم استيراد ${number(data().bank.length)} حركة • ${data().bankName}`:'ما تم استيراد أي كشف بعد.';$('currentCompanyLabel').textContent=company().name}
+function renderAll(){renderCompanies();renderHome();renderReview();renderMatch();renderReport();renderEntry();$('ledgerCount').textContent=data().ledger.length?`تم استيراد ${number(data().ledger.length)} عملية • ${data().ledgerName}`:'ما تم استيراد أي ملف بعد.';$('bankCount').textContent=data().bank.length?`تم استيراد ${number(data().bank.length)} حركة • ${data().bankName}`:'ما تم استيراد أي كشف بعد.';$('currentCompanyLabel').textContent=company().name}
 function goto(view){currentView=view;document.querySelectorAll('.view').forEach(el=>el.classList.toggle('active',el.id===`view-${view}`));document.querySelectorAll('.nav-btn').forEach(b=>b.classList.toggle('active',b.dataset.view===view));renderAll();window.scrollTo({top:0,behavior:'instant'})}
-function changeCompany(id){if(!db[id]||id===activeCompany)return;activeCompany=id;pending=null;$('mappingPanel').classList.add('hidden');$('ledgerFile').value='';$('bankFile').value='';renderAll();toast(`تم اختيار ${company().name} — بيانات الشركات الأخرى منفصلة.`)}
+function changeCompany(id){if(!db[id]||id===activeCompany)return;activeCompany=id;resetEntryForm(false);pending=null;$('mappingPanel').classList.add('hidden');$('ledgerFile').value='';$('bankFile').value='';renderAll();toast(`تم اختيار ${company().name} — بيانات الشركات الأخرى منفصلة.`)}
 async function readFile(file,kind){if(!file)return;if(file.size>10*1024*1024)throw Error('الملف أكبر من 10 ميجابايت، قسّمه لملفات أصغر.');const ext=file.name.split('.').pop().toLowerCase();let sheets;
  if(ext==='xlsx')sheets=await parseXlsx(await file.arrayBuffer());else if(['csv','tsv'].includes(ext)){const bytes=new Uint8Array(await file.arrayBuffer());const encoding=bytes[0]===0xff&&bytes[1]===0xfe?'utf-16le':'utf-8';const text=new TextDecoder(encoding).decode(bytes);sheets=[{name:'البيانات',rows:ext==='tsv'?parseDelimited(text,'\t'):detectDelimited(text)}]}else throw Error('صيغة الملف غير مدعومة. استخدم xlsx أو CSV أو TSV، وليس xls القديم.');
  pending={kind,name:file.name,sheets,sheet:0,company:activeCompany};setupMapping();toast('تم قراءة الملف محليًا. راجع الأعمدة قبل الاستيراد.');
@@ -197,13 +197,109 @@ function loadDemo(){const d=data();const commit=()=>{
  d.approved=[];d.demo=true;d.ledgerName='بيانات وهمية للتجربة';d.bankName='كشف وهمي للتجربة';renderAll();goto('review');toast('تمت إضافة مثال تجريبي للشركة الحالية فقط. ما فيه بيانات حقيقية.');};
  if(hasData())confirmDialog('استبدال بيانات الشركة التجريبية؟','بيانات الشركة المختارة الحالية بتُستبدل بمثال وهمي، والمطابقات المعتمدة بتنمسح. باقي الشركات ما تتأثر.',commit);else commit();
 }
+// Manual entry is an append-only-in-session helper, never a financial posting operation.
+function todayLocal(){const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`}
+function setEntryDirection(kind,chosen){
+ const direction=$('entryDirection');
+ direction.innerHTML=(kind==='ledger'?[['in','قبض / داخل'],['out','صرف / خارج']]:[['in','إيداع / داخل'],['out','سحب / خارج']]).map(([val,label])=>`<option value="${val}">${label}</option>`).join('');
+ direction.value=chosen==='out'?'out':'in';
+}
+function resetEntryForm(keepKind=false){
+ const kind=keepKind?$('entryKind').value:'ledger';
+ entryEditing=null;$('entryForm').reset();$('entryCompany').disabled=false;$('entryKind').disabled=false;
+ $('entryCompany').value=activeCompany;$('entryKind').value=kind;
+ $('entryDate').value=todayLocal();setEntryDirection(kind,'in');
+ $('entryFormTitle').textContent='عملية جديدة';$('entrySubmit').textContent='＋ حفظ وإضافة عملية ثانية';
+ $('entryError').textContent='';$('entryError').classList.add('hidden');
+}
+function entryError(message,field){$('entryError').textContent=message;$('entryError').classList.remove('hidden');field?.focus();}
+function renderEntry(){
+ const d=data();$('entryCompany').value=activeCompany;$('entrySelectedCompany').textContent=company().name;
+ $('entryLedgerCount').textContent=number(d.ledger.length);$('entryBankCount').textContent=number(d.bank.length);
+ const manual=[...d.ledger.filter(r=>r.manual).map(r=>({kind:'ledger',r})),...d.bank.filter(r=>r.manual).map(r=>({kind:'bank',r}))].sort((a,b)=>b.r.manualOrder-a.r.manualOrder);
+ $('entryRecentCount').textContent=`${number(manual.length)} عملية`;
+ $('entryRecent').innerHTML=manual.length?manual.slice(0,8).map(({kind,r})=>`<div class="entry-record">
+   <span class="entry-record-icon ${r.amount<0?'negative':''}" aria-hidden="true">${r.amount<0?'−':'+'}</span>
+   <div class="entry-record-info"><strong>${esc(r.description)}</strong><small>${kind==='ledger'?'دفتر العمليات':'كشف البنك'} · ${esc(r.date)} ${r.reference?' · '+esc(r.reference):''}</small></div>
+   <div class="entry-record-end"><strong dir="ltr" class="${r.amount<0?'negative':''}">${r.amount>0?'+':''}${money(r.amount)} ر.ع</strong><div class="entry-record-actions"><button type="button" data-manual-edit="${esc(r.id)}" data-manual-kind="${kind}" aria-label="تعديل ${esc(r.description)}">تعديل</button><button type="button" data-manual-delete="${esc(r.id)}" data-manual-kind="${kind}" aria-label="حذف ${esc(r.description)}">حذف</button></div></div>
+ </div>`).join(''):'<div class="entry-empty"><span aria-hidden="true">✎</span><strong>ما دخلت أي عملية يدويًا بعد</strong><p>أول عملية بتظهر هنا وتقدر تعدلها أو تحذفها.</p></div>';
+}
+function entryValues(){
+ const kind=$('entryKind').value, date=$('entryDate').value, description=$('entryDescription').value.trim(), raw=$('entryAmount').value.trim(),direction=$('entryDirection').value;
+ if(!['ledger','bank'].includes(kind))throw Error('حدد مكان التسجيل الصحيح.');
+ if(!normalizeDate(date)) {entryError('حدد تاريخ صحيح للعملية.', $('entryDate'));return null}
+ if(!description){entryError('اكتب بيان العملية عشان تقدر تراجعها بعدين.',$('entryDescription'));return null}
+ const amount=parseAmount(raw);
+ if(!Number.isFinite(amount)||amount<=0||amount>999999999999.999||Math.abs(amount*1000-Math.round(amount*1000))>0.00001){entryError('أدخل مبلغًا موجبًا صحيحًا، بحد أقصى ثلاث خانات بعد الفاصلة.',$('entryAmount'));return null}
+ if(!['in','out'].includes(direction)){entryError('اختر نوع الحركة.',$('entryDirection'));return null}
+ const sign=direction==='out'?-1:1;
+ return {date,rawDate:date,description,amount:sign*Math.round(amount*1000)/1000,rawAmount:raw,reference:$('entryReference').value.trim(),party:$('entryParty').value.trim(),type:kind==='ledger'?(sign>0?'قبض':'صرف'):(sign>0?'إيداع':'سحب'),directionUnknown:false};
+}
+function duplicateManual(kind,record,editingId){
+ return data()[kind].find(r=>r.id!==editingId&&Number.isFinite(r.amount)&&Math.abs(r.amount-record.amount)<.00001&&(
+  record.reference&&norm(record.reference)===norm(r.reference)&&norm(record.party)===norm(r.party) ||
+  r.date===record.date&&norm(r.description)===norm(record.description)
+ ));
+}
+function invalidateApprovals(kind,id){const d=data(),before=d.approved.length;d.approved=d.approved.filter(key=>{const ids=key.split('|');return (kind==='ledger'?ids[0]:ids[1])!==id});return before-d.approved.length}
+function addOrUpdateEntry(e){e.preventDefault();$('entryError').classList.add('hidden');
+ const kind=$('entryKind').value;if($('entryCompany').value!==activeCompany)return entryError('الشركة تغيّرت. اختر الشركة من جديد.',$('entryCompany'));
+ const record=entryValues();if(!record)return;
+ const d=data(),editing=entryEditing&&entryEditing.company===activeCompany&&entryEditing.kind===kind?entryEditing:null;
+ if(!editing&&d[kind].length>=10000)return entryError('وصلت للحد الأقصى 10,000 عملية. صدّر البيانات قبل بدء جلسة جديدة.');
+ const duplicate=!d.demo&&duplicateManual(kind,record,editing?.id);
+ const commit=()=>{
+   const current=data();if(current!==d)return toast('الشركة تغيّرت. أعد المحاولة.',true);
+   if(!editing&&current.demo){current.ledger=[];current.bank=[];current.approved=[];current.ledgerName='';current.bankName='';current.demo=false}
+   let invalidated=0;
+   if(editing){const index=current[kind].findIndex(r=>r.id===editing.id&&r.manual);if(index<0)return toast('العملية غير موجودة أو غير قابلة للتعديل.',true);
+     const old=current[kind][index];invalidated=invalidateApprovals(kind,old.id);
+     current[kind][index]={...old,...record};
+   }else{
+     const sequence=++manualSequence;
+     current[kind].push({...record,id:`${kind}-manual-${sequence}`,row:Math.max(1,...current[kind].map(r=>Number(r.row)||1))+1,manual:true,manualOrder:sequence});
+     if(!current[kind+'Name'])current[kind+'Name']='إدخال يدوي';
+   }
+   const didEdit=Boolean(editing);resetEntryForm(true);renderAll();$('entryDescription').focus();
+   toast((didEdit?'تم تعديل العملية.':'تم حفظ العملية في '+company().name+'.')+(invalidated?' ألغينا المطابقة المرتبطة عشان تراجعها.':'')+' صدّر CSV قبل ما تطلع.');
+ };
+ if(!editing&&d.demo)confirmDialog('إلغاء البيانات التجريبية؟','عشان ما نخلط بياناتك الحقيقية بالمثال الوهمي، بنمسح بيانات التجربة من هذه الشركة فقط ونبدأ بأول عملية منك.',commit);
+ else if(duplicate)confirmDialog('تكرار محتمل','فيه عملية موجودة بنفس المرجع والمبلغ أو بنفس التاريخ والبيان والمبلغ. متأكد تبغى تحفظها مرة ثانية؟',commit);
+ else commit();
+}
+function editEntry(kind,id){const record=data()[kind]?.find(r=>r.id===id&&r.manual);if(!record)return toast('العملية ما موجودة، أو جاية من ملف ولا تتعدل هنا.',true);
+ entryEditing={kind,id,company:activeCompany};$('entryCompany').value=activeCompany;$('entryCompany').disabled=true;$('entryKind').value=kind;$('entryKind').disabled=true;
+ $('entryDate').value=record.date;$('entryDescription').value=record.description;$('entryAmount').value=money(Math.abs(record.amount)).replace(/,/g,'');
+ $('entryReference').value=record.reference||'';$('entryParty').value=record.party||'';setEntryDirection(kind,record.amount<0?'out':'in');
+ $('entryFormTitle').textContent='تعديل عملية مسجّلة';$('entrySubmit').textContent='✓ حفظ التعديل';
+ $('entryError').classList.add('hidden');$('entryForm').scrollIntoView({behavior:'smooth',block:'start'});$('entryDescription').focus();
+}
+function deleteEntry(kind,id){const r=data()[kind]?.find(x=>x.id===id&&x.manual);if(!r)return toast('ما حصلنا العملية.',true);
+ const selectedCompany=activeCompany;
+ confirmDialog('حذف العملية اليدوية؟',`بتحذف «${r.description.slice(0,60)}» من ${company().name} داخل جلسة الأداة فقط. التعديل ما يأثر على ملف Excel الأصلي.`,()=>{
+  if(activeCompany!==selectedCompany)return toast('الشركة تغيّرت. أعد المحاولة.',true);
+  const d=data();d[kind]=d[kind].filter(x=>x.id!==id||!x.manual);const invalidated=invalidateApprovals(kind,id);
+  if(entryEditing?.id===id&&entryEditing.kind===kind)resetEntryForm(true);
+  renderAll();toast('تم حذف العملية.'+(invalidated?' وتم إلغاء المطابقة المرتبطة.':''));
+ });
+}
+function exportFullData(kind){const d=data(),rows=d[kind];if(!rows.length)return toast('ما فيه عمليات لتصديرها من '+company().name+'.',true);
+ downloadCsv([['التاريخ','البيان','المبلغ','رقم المستند','نوع العملية','الطرف','مصدر الإدخال'],...rows.map(r=>[r.date||r.rawDate,r.description,Number.isFinite(r.amount)?r.amount:r.rawAmount,r.reference,r.type,r.party,r.manual?'يدوي':'ملف Excel / CSV'])],kind==='ledger'?'ledger-all':'bank-all');
+}
 function safeCsvCell(value){let s=String(value??'');if(/^[\s\uFEFF]*[=+\-@\t\r]/.test(s))s="'"+s;return '"'+s.replace(/"/g,'""')+'"'}
 function downloadCsv(rows,name){const content='\uFEFF'+rows.map(row=>row.map(v=>typeof v==='number'&&Number.isFinite(v)?String(v):safeCsvCell(v)).join(',')).join('\r\n');const blob=new Blob([content],{type:'text/csv;charset=utf-8'});const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`sanad-${activeCompany}-${name}-${new Date().toISOString().slice(0,10)}.csv`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),3000);toast('تم تجهيز ملف CSV. افتحه في Excel للمراجعة.')}
 function exportReview(){const records=analyseLedger(data().ledger);if(!records.length)return toast('استورد دفتر العمليات أولًا.',true);downloadCsv([['رقم الصف','التاريخ','البيان','المرجع','الطرف','المبلغ','الملاحظات'],...records.filter(x=>x.issues.length).map(r=>[r.row,r.date||r.rawDate,r.description,r.reference,r.party,Number.isFinite(r.amount)?r.amount:r.rawAmount,r.issues.join(' | ')])],'review')}
 function exportMatches(){const m=matchResult();if(!m.ledger.length&&!m.bank.length)return toast('ما فيه بيانات للتصدير.',true);const rows=[['المصدر','الصف','التاريخ','البيان','المرجع','المبلغ','الحالة','الصف المقابل'],...m.approved.flatMap(p=>[['الدفتر',p.l.row,p.l.date,p.l.description,p.l.reference,p.l.amount,'معتمدة',p.b.row],['البنك',p.b.row,p.b.date,p.b.description,p.b.reference,p.b.amount,'معتمدة',p.l.row]]),...m.suggested.map(p=>['الدفتر',p.l.row,p.l.date,p.l.description,p.l.reference,p.l.amount,'مطابقة مقترحة غير معتمدة',p.b.row]),...m.unmatchedLedger.filter(x=>!m.suggested.some(p=>p.l.id===x.id)).map(r=>['الدفتر',r.row,r.date,r.description,r.reference,Number.isFinite(r.amount)?r.amount:r.rawAmount,'غير معتمدة','']),...m.unmatchedBank.filter(x=>!m.suggested.some(p=>p.b.id===x.id)).map(r=>['البنك',r.row,r.date,r.description,r.reference,Number.isFinite(r.amount)?r.amount:r.rawAmount,'غير معتمدة',''])];downloadCsv(rows,'bank-match')}
 function exportReport(){const r=getReport();if(!r.d.ledger.length&&!r.d.bank.length)return toast('استورد البيانات أو جرّب المثال أولًا.',true);const rows=[['القسم','المرجع','التاريخ','البيان','المبلغ','الحالة / الملاحظة'],['الشركة','', '',r.company,'',r.d.demo?'بيانات تجريبية':'بيانات الجلسة'],['الملخص','','','عمليات دفتر',r.d.ledger.length,''],['الملخص','','','حركات بنك',r.d.bank.length,''],['الملخص','','','عمليات بملاحظات',r.flags.length,''],['الملخص','','','مطابقات مقترحة',r.m.suggested.length,'غير معتمدة'],['الملخص','','','مطابقات معتمدة',r.m.approved.length,''],...r.flags.map(x=>['الملاحظات',x.reference,x.date||x.rawDate,x.description,Number.isFinite(x.amount)?x.amount:x.rawAmount,x.issues.join(' | ')]),...r.m.unmatchedBank.map(x=>['حركات بنك غير معتمدة',x.reference,x.date,x.description,Number.isFinite(x.amount)?x.amount:x.rawAmount,'بانتظار المراجعة'])];downloadCsv(rows,'summary')}
-function bindEvents(){document.querySelectorAll('[data-view],[data-goto]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.view||b.dataset.goto)));$('companyCards').addEventListener('click',e=>{const card=e.target.closest('[data-company]');if(card)changeCompany(card.dataset.company)});
- $('demoBtn').addEventListener('click',loadDemo);$('wipeBtn').addEventListener('click',()=>confirmDialog('مسح بيانات الجلسة؟','هذا يمسح بيانات الشركات الأربع من ذاكرة الصفحة، بما فيها المطابقات المعتمدة. احفظ تقاريرك أولًا.',()=>{for(const c of COMPANIES)db[c.id]=makeData();pending=null;$('mappingPanel').classList.add('hidden');renderAll();goto('home');toast('تم مسح بيانات الجلسة.') }));
+function bindEvents(){resetEntryForm(false);document.querySelectorAll('[data-view],[data-goto]').forEach(b=>b.addEventListener('click',()=>goto(b.dataset.view||b.dataset.goto)));$('companyCards').addEventListener('click',e=>{const card=e.target.closest('[data-company]');if(card)changeCompany(card.dataset.company)});
+ $('entryForm').addEventListener('submit',addOrUpdateEntry);
+ $('entryKind').addEventListener('change',()=>setEntryDirection($('entryKind').value,'in'));
+ $('entryCompany').addEventListener('change',()=>changeCompany($('entryCompany').value));
+ $('entryReset').addEventListener('click',()=>{resetEntryForm(true);renderEntry()});
+ $('entryExportLedger').addEventListener('click',()=>exportFullData('ledger'));
+ $('entryExportBank').addEventListener('click',()=>exportFullData('bank'));
+ $('entryRecent').addEventListener('click',event=>{const edit=event.target.closest('[data-manual-edit]'),del=event.target.closest('[data-manual-delete]');if(edit)editEntry(edit.dataset.manualKind,edit.dataset.manualEdit);if(del)deleteEntry(del.dataset.manualKind,del.dataset.manualDelete)});
+ $('demoBtn').addEventListener('click',loadDemo);$('wipeBtn').addEventListener('click',()=>confirmDialog('مسح بيانات الجلسة؟','هذا يمسح بيانات الشركات الأربع من ذاكرة الصفحة، بما فيها المطابقات المعتمدة. احفظ تقاريرك أولًا.',()=>{for(const c of COMPANIES)db[c.id]=makeData();pending=null;$('mappingPanel').classList.add('hidden');resetEntryForm(false);renderAll();goto('home');toast('تم مسح بيانات الجلسة.') }));
  $('modalCancel').addEventListener('click',closeModal);$('modalConfirm').addEventListener('click',()=>{const fn=modalCallback;closeModal();fn?.()});$('modal').addEventListener('click',e=>{if(e.target===$('modal'))closeModal()});document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('modal').classList.contains('hidden'))closeModal()});
  for(const kind of ['ledger','bank']){const input=$(`${kind}File`),drop=$(`${kind}Drop`);input.addEventListener('change',async()=>{try{await readFile(input.files[0],kind)}catch(e){toast(e.message||'تعذر قراءة الملف.',true)}});drop.addEventListener('dragover',e=>{e.preventDefault();drop.classList.add('dragover')});drop.addEventListener('dragleave',()=>drop.classList.remove('dragover'));drop.addEventListener('drop',async e=>{e.preventDefault();drop.classList.remove('dragover');try{await readFile(e.dataTransfer.files[0],kind)}catch(err){toast(err.message||'تعذر قراءة الملف.',true)}})}
  $('pasteToggle').addEventListener('click',()=>$('pasteBox').classList.toggle('hidden'));
